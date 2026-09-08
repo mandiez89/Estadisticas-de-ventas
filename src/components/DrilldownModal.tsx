@@ -67,7 +67,7 @@ export const DrilldownModal: React.FC<DrilldownModalProps> = ({
 
   // Monthly trend for chart
   const allYears: number[] = Array.from(new Set(hist.map((r) => r.y))).map(Number).sort((a, b) => a - b);
-  const maxYear = allYears.length > 0 ? Math.max(...allYears) : 0;
+  const maxYear = allYears.length > 0 ? allYears[allYears.length - 1] : 0;
   const mesesNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const monthlyChartData = mesesNames.map((mName, mIdx) => {
     const item: Record<string, any> = { month: mName };

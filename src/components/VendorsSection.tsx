@@ -31,9 +31,14 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
   onOpenDrilldown
 }) => {
   // Unique vendors
-  const allVendors = Array.from(
-    new Set([...curRows.map((r) => r.vend), ...prevRows.map((r) => r.vend)])
-  ).filter((v) => v && v !== '(sin vendedor)').sort();
+  const vendorSet = new Set<string>();
+  curRows.forEach((r) => {
+    if (r.vend && r.vend !== '(sin vendedor)') vendorSet.add(r.vend);
+  });
+  prevRows.forEach((r) => {
+    if (r.vend && r.vend !== '(sin vendedor)') vendorSet.add(r.vend);
+  });
+  const allVendors = Array.from(vendorSet).sort();
 
   const [cmpVendA, setCmpVendA] = useState<string>(allVendors[0] || '');
   const [cmpVendB, setCmpVendB] = useState<string>('__ALL__');
@@ -41,21 +46,67 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
   const [sortKey, setSortKey] = useState<string>('sub');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
 
-  // Aggregation per vendor for cur and prev
+  // Aggregation per vendor for cur and prev using fast single-pass maps
   const curTotalSub = curRows.reduce((acc, r) => acc + r.sub, 0) || 1;
-  const maxVendorSub = Math.max(
-    ...allVendors.map((v) => curRows.filter((r) => r.vend === v).reduce((acc, r) => acc + r.sub, 0)),
-    1
-  );
+
+  // Single pass for curRows
+  const curVendorMap = new Map<string, { sub: number; doc: number; clients: Set<string>; arts: Set<string> }>();
+  for (let i = 0; i < curRows.length; i++) {
+    const r = curRows[i];
+    let v = curVendorMap.get(r.vend);
+    if (!v) {
+      v = { sub: 0, doc: 0, clients: new Set(), arts: new Set() };
+      curVendorMap.set(r.vend, v);
+    }
+    v.sub += r.sub;
+    v.doc += r.doc;
+    v.clients.add(r.cliente);
+    v.arts.add(r.art);
+  }
+
+  // Single pass for prevRows
+  const prevVendorMap = new Map<string, { sub: number; doc: number; clients: Set<string> }>();
+  for (let i = 0; i < prevRows.length; i++) {
+    const r = prevRows[i];
+    let v = prevVendorMap.get(r.vend);
+    if (!v) {
+      v = { sub: 0, doc: 0, clients: new Set() };
+      prevVendorMap.set(r.vend, v);
+    }
+    v.sub += r.sub;
+    v.doc += r.doc;
+    v.clients.add(r.cliente);
+  }
+
+  // Monthly breakdown for sparklines & determine currentMaxIdx without spreading large arrays
+  let currentMaxIdx = 0;
+  const vendorMonthlyMap = new Map<string, Record<number, number>>();
+  for (let i = 0; i < baseRows.length; i++) {
+    const r = baseRows[i];
+    const idx = r.y * 12 + r.m;
+    if (idx > currentMaxIdx) currentMaxIdx = idx;
+
+    let mObj = vendorMonthlyMap.get(r.vend);
+    if (!mObj) {
+      mObj = {};
+      vendorMonthlyMap.set(r.vend, mObj);
+    }
+    mObj[idx] = (mObj[idx] || 0) + r.sub;
+  }
+
+  let maxVendorSub = 1;
+  curVendorMap.forEach((val) => {
+    if (val.sub > maxVendorSub) maxVendorSub = val.sub;
+  });
 
   const vendorStats = allVendors.map((v) => {
-    const curV = curRows.filter((r) => r.vend === v);
-    const prevV = prevRows.filter((r) => r.vend === v);
+    const curV = curVendorMap.get(v) || { sub: 0, doc: 0, clients: new Set<string>(), arts: new Set<string>() };
+    const prevV = prevVendorMap.get(v) || { sub: 0, doc: 0, clients: new Set<string>() };
 
-    const sub = curV.reduce((acc, r) => acc + r.sub, 0);
-    const prevSub = prevV.reduce((acc, r) => acc + r.sub, 0);
-    const doc = curV.reduce((acc, r) => acc + r.doc, 0);
-    const prevDoc = prevV.reduce((acc, r) => acc + r.doc, 0);
+    const sub = curV.sub;
+    const prevSub = prevV.sub;
+    const doc = curV.doc;
+    const prevDoc = prevV.doc;
 
     const share = sub / curTotalSub;
     const deltaSub = getDelta(sub, prevSub);
@@ -63,26 +114,24 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
 
     const pricePerDoc = doc > 0 ? sub / doc : 0;
 
-    const curClients = new Set(curV.map((r) => r.cliente));
-    const prevClients = new Set(prevV.map((r) => r.cliente));
+    const curClients = curV.clients;
+    const prevClients = prevV.clients;
 
-    const gained = Array.from(curClients).filter((c) => !prevClients.has(c)).length;
-    const lost = Array.from(prevClients).filter((c) => !curClients.has(c)).length;
+    let gained = 0;
+    curClients.forEach((c) => {
+      if (!prevClients.has(c)) gained++;
+    });
+    let lost = 0;
+    prevClients.forEach((c) => {
+      if (!curClients.has(c)) lost++;
+    });
     const net = gained - lost;
 
-    const distinctArts = new Set(curV.map((r) => r.art)).size;
+    const distinctArts = curV.arts.size;
 
-    // Monthly sparkline from baseRows
+    // Monthly sparkline from precomputed map
     const monthlyVals: number[] = [];
-    // Last 6 or 12 distinct months
-    const baseV = baseRows.filter((r) => r.vend === v);
-    const monthsMap: Record<number, number> = {};
-    baseV.forEach((r) => {
-      const idx = r.y * 12 + r.m;
-      monthsMap[idx] = (monthsMap[idx] || 0) + r.sub;
-    });
-    // extract last 12
-    const currentMaxIdx = Math.max(...baseRows.map((r) => r.y * 12 + r.m), 0);
+    const monthsMap = vendorMonthlyMap.get(v) || {};
     for (let idx = currentMaxIdx - 11; idx <= currentMaxIdx; idx++) {
       monthlyVals.push(monthsMap[idx] || 0);
     }

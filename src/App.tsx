@@ -71,7 +71,10 @@ export default function App() {
   // Sync year/month bounds whenever rows change
   useEffect(() => {
     if (rows.length > 0) {
-      const maxTs = Math.max(...rows.map((r) => r.ts));
+      let maxTs = 0;
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i].ts > maxTs) maxTs = rows[i].ts;
+      }
       const maxD = new Date(maxTs);
       setFilters((prev) => ({
         ...prev,

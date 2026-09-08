@@ -31,32 +31,58 @@ export const ClientsSection: React.FC<ClientsSectionProps> = ({
   const rfmMap = new Map<string, RFMSegment>();
   rfmList.forEach((item) => rfmMap.set(item.cliente, item));
 
-  // Client stats in the period
+  // Client stats in the period using fast single-pass maps
   const curTotalSub = curRows.reduce((acc, r) => acc + r.sub, 0) || 1;
-  const allClients: string[] = Array.from(new Set(curRows.map((r) => r.cliente))).filter((c): c is string => Boolean(c));
-  const maxClientSub = Math.max(
-    ...allClients.map((c) => curRows.filter((r) => r.cliente === c).reduce((acc, r) => acc + r.sub, 0)),
-    1
-  );
+
+  const curClientMap = new Map<string, { sub: number; doc: number; arts: Set<string>; vend: string; prov: string }>();
+  for (let i = 0; i < curRows.length; i++) {
+    const r = curRows[i];
+    let c = curClientMap.get(r.cliente);
+    if (!c) {
+      c = { sub: 0, doc: 0, arts: new Set(), vend: r.vend || '—', prov: r.prov || '—' };
+      curClientMap.set(r.cliente, c);
+    }
+    c.sub += r.sub;
+    c.doc += r.doc;
+    c.arts.add(r.art);
+  }
+
+  const prevClientMap = new Map<string, { sub: number; doc: number }>();
+  for (let i = 0; i < prevRows.length; i++) {
+    const r = prevRows[i];
+    let c = prevClientMap.get(r.cliente);
+    if (!c) {
+      c = { sub: 0, doc: 0 };
+      prevClientMap.set(r.cliente, c);
+    }
+    c.sub += r.sub;
+    c.doc += r.doc;
+  }
+
+  const allClients = Array.from(curClientMap.keys()).filter(Boolean);
+
+  let maxClientSub = 1;
+  curClientMap.forEach((val) => {
+    if (val.sub > maxClientSub) maxClientSub = val.sub;
+  });
 
   const clientStats = allClients.map((c) => {
-    const curC = curRows.filter((r) => r.cliente === c);
-    const prevC = prevRows.filter((r) => r.cliente === c);
+    const curC = curClientMap.get(c) || { sub: 0, doc: 0, arts: new Set<string>(), vend: '—', prov: '—' };
+    const prevC = prevClientMap.get(c) || { sub: 0, doc: 0 };
 
-    const sub = curC.reduce((acc, r) => acc + r.sub, 0);
-    const prevSub = prevC.reduce((acc, r) => acc + r.sub, 0);
-    const doc = curC.reduce((acc, r) => acc + r.doc, 0);
-    const prevDoc = prevC.reduce((acc, r) => acc + r.doc, 0);
+    const sub = curC.sub;
+    const prevSub = prevC.sub;
+    const doc = curC.doc;
+    const prevDoc = prevC.doc;
 
     const share = sub / curTotalSub;
     const deltaSub = getDelta(sub, prevSub);
     const deltaDoc = getDelta(doc, prevDoc);
     const pricePerDoc = doc > 0 ? sub / doc : 0;
 
-    const sample = curC[0] || {};
-    const vend = sample.vend || '—';
-    const prov = sample.prov || '—';
-    const distinctArts = new Set(curC.map((r) => r.art)).size;
+    const vend = curC.vend;
+    const prov = curC.prov;
+    const distinctArts = curC.arts.size;
 
     const rfm = rfmMap.get(c);
 

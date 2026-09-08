@@ -62,8 +62,8 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
     if (!values || values.length === 0) return null;
     const w = 110;
     const h = 28;
-    const max = Math.max(...values, 0);
-    const min = Math.min(...values, 0);
+    const max = values.reduce((m, v) => Math.max(m, v), 0);
+    const min = values.reduce((m, v) => Math.min(m, v), 0);
     const range = max - min || 1;
     const pts = values.map((v, i) => {
       const x = (i / (values.length - 1 || 1)) * (w - 6) + 3;

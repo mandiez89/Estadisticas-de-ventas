@@ -32,33 +32,58 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
   const [sortAsc, setSortAsc] = useState<boolean>(false);
   const [treemapDim, setTreemapDim] = useState<'linea' | 'fam' | 'art'>('linea');
 
-  // Aggregation per article
+  // Aggregation per article using fast single-pass maps
   const curTotalSub = curRows.reduce((acc, r) => acc + r.sub, 0) || 1;
-  const allArticles: string[] = Array.from(new Set(curRows.map((r) => r.art))).filter((a): a is string => Boolean(a));
-  const maxArtDoc = Math.max(
-    ...allArticles.map((a) => curRows.filter((r) => r.art === a).reduce((acc, r) => acc + r.doc, 0)),
-    1
-  );
+
+  const curArtMap = new Map<string, { sub: number; doc: number; clients: Set<string>; fam: string; linea: string }>();
+  for (let i = 0; i < curRows.length; i++) {
+    const r = curRows[i];
+    let a = curArtMap.get(r.art);
+    if (!a) {
+      a = { sub: 0, doc: 0, clients: new Set(), fam: r.fam || '—', linea: r.linea || '—' };
+      curArtMap.set(r.art, a);
+    }
+    a.sub += r.sub;
+    a.doc += r.doc;
+    a.clients.add(r.cliente);
+  }
+
+  const prevArtMap = new Map<string, { sub: number; doc: number }>();
+  for (let i = 0; i < prevRows.length; i++) {
+    const r = prevRows[i];
+    let a = prevArtMap.get(r.art);
+    if (!a) {
+      a = { sub: 0, doc: 0 };
+      prevArtMap.set(r.art, a);
+    }
+    a.sub += r.sub;
+    a.doc += r.doc;
+  }
+
+  const allArticles = Array.from(curArtMap.keys()).filter(Boolean);
+
+  let maxArtDoc = 1;
+  curArtMap.forEach((val) => {
+    if (val.doc > maxArtDoc) maxArtDoc = val.doc;
+  });
 
   const articleStats = allArticles.map((art) => {
-    const curA = curRows.filter((r) => r.art === art);
-    const prevA = prevRows.filter((r) => r.art === art);
+    const curA = curArtMap.get(art) || { sub: 0, doc: 0, clients: new Set<string>(), fam: '—', linea: '—' };
+    const prevA = prevArtMap.get(art) || { sub: 0, doc: 0 };
 
-    const sub = curA.reduce((acc, r) => acc + r.sub, 0);
-    const prevSub = prevA.reduce((acc, r) => acc + r.sub, 0);
-    const doc = curA.reduce((acc, r) => acc + r.doc, 0);
-    const prevDoc = prevA.reduce((acc, r) => acc + r.doc, 0);
+    const sub = curA.sub;
+    const prevSub = prevA.sub;
+    const doc = curA.doc;
+    const prevDoc = prevA.doc;
 
     const share = sub / curTotalSub;
     const deltaSub = getDelta(sub, prevSub);
     const deltaDoc = getDelta(doc, prevDoc);
     const pricePerDoc = doc > 0 ? sub / doc : 0;
 
-    const sample = curA[0] || {};
-    const fam = sample.fam || '—';
-    const linea = sample.linea || '—';
-
-    const clientCount = new Set(curA.map((r) => r.cliente)).size;
+    const fam = curA.fam;
+    const linea = curA.linea;
+    const clientCount = curA.clients.size;
 
     return {
       art,
