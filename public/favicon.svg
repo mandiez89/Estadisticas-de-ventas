@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="barGrad1" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#60a5fa"/>
+    </linearGradient>
+    <linearGradient id="barGrad2" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="barGrad3" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+    <linearGradient id="lineGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Container Base with smooth rounded corners -->
+  <rect width="64" height="64" rx="14" fill="url(#bgGrad)"/>
+  <rect x="1" y="1" width="62" height="62" rx="13" fill="none" stroke="#334155" stroke-width="1.5" opacity="0.6"/>
+
+  <!-- Sales Rising Bars -->
+  <!-- Bar 1 -->
+  <rect x="13" y="34" width="9" height="17" rx="3" fill="url(#barGrad1)"/>
+  <!-- Bar 2 -->
+  <rect x="27" y="25" width="9" height="26" rx="3" fill="url(#barGrad2)"/>
+  <!-- Bar 3 (Leader) -->
+  <rect x="41" y="16" width="9" height="35" rx="3" fill="url(#barGrad3)"/>
+
+  <!-- Upward Trend Line with Growth Arrow -->
+  <path d="M14 31 L28 22 L45 13" fill="none" stroke="url(#lineGrad)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Arrow Head -->
+  <polygon points="45,9 52,14 43,19" fill="#10b981"/>
+
+  <!-- Trend Anchor Points -->
+  <circle cx="17.5" cy="28.5" r="2.5" fill="#f59e0b"/>
+  <circle cx="31.5" cy="20" r="2.5" fill="#38bdf8"/>
+</svg>

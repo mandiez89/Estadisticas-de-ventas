@@ -20,11 +20,38 @@ import { AuditImprovementsSection } from './components/AuditImprovementsSection'
 import { DrilldownModal } from './components/DrilldownModal';
 import { ExclusionModal } from './components/ExclusionModal';
 import { SavedViewsModal } from './components/SavedViewsModal';
+import { LoginScreen } from './components/LoginScreen';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 import * as XLSX from 'xlsx';
 
 const EXCLUSION_STORAGE_KEY = 'sasre_excluded_articles_v2';
+const AUTH_STORAGE_KEY = 'sasre_auth_session';
+const PASSWORD_STORAGE_KEY = 'sasre_custom_password';
+const DEFAULT_PASSWORD = 'sasre2025';
 
 export default function App() {
+  // Authentication & Security State
+  const [savedPassword, setSavedPassword] = useState<string>(() => {
+    try {
+      return localStorage.getItem(PASSWORD_STORAGE_KEY) || DEFAULT_PASSWORD;
+    } catch {
+      return DEFAULT_PASSWORD;
+    }
+  });
+
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    try {
+      return (
+        localStorage.getItem(AUTH_STORAGE_KEY) === 'unlocked' ||
+        sessionStorage.getItem(AUTH_STORAGE_KEY) === 'unlocked'
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);
+
   // Load initial demo data so the app displays immediately
   const [rows, setRows] = useState<SaleRow[]>(() => generateDemoData());
   const [sourceName, setSourceName] = useState<string>('Datos Demostración Sasre (2024-2026)');
@@ -263,6 +290,34 @@ export default function App() {
     if (file) handleFileUpload(file);
   };
 
+  const handleLock = useCallback(() => {
+    try {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch (e) {
+      console.warn('Storage error:', e);
+    }
+    setIsAuthenticated(false);
+  }, []);
+
+  const handlePasswordChanged = useCallback((newPass: string) => {
+    setSavedPassword(newPass);
+    try {
+      localStorage.setItem(PASSWORD_STORAGE_KEY, newPass);
+    } catch (e) {
+      console.warn('Storage error:', e);
+    }
+  }, []);
+
+  if (!isAuthenticated) {
+    return (
+      <LoginScreen
+        onLoginSuccess={() => setIsAuthenticated(true)}
+        currentPassword={savedPassword}
+      />
+    );
+  }
+
   return (
     <div
       onDragOver={handleDragOver}
@@ -291,6 +346,8 @@ export default function App() {
         onExportExcel={handleExportExcel}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        onLock={handleLock}
+        onOpenChangePassword={() => setIsChangePasswordOpen(true)}
       />
 
       {/* Sticky Filter Bar */}
@@ -409,6 +466,13 @@ export default function App() {
         onClose={() => setIsSavedViewsOpen(false)}
         currentFilters={filters}
         onApplyView={(savedFilters) => setFilters(savedFilters)}
+      />
+
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+        currentPassword={savedPassword}
+        onPasswordChanged={handlePasswordChanged}
       />
     </div>
   );

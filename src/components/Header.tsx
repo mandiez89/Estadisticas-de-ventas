@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Upload, Sparkles, Download, Layers, RefreshCw, BarChart2 } from 'lucide-react';
+import { Upload, Sparkles, Download, Layers, RefreshCw, BarChart2, Lock, KeyRound } from 'lucide-react';
 import { SaleRow } from '../types';
 import * as XLSX from 'xlsx';
 
@@ -13,6 +13,8 @@ interface HeaderProps {
   onExportExcel: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  onLock: () => void;
+  onOpenChangePassword: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,7 +26,9 @@ export const Header: React.FC<HeaderProps> = ({
   onLoadDemo,
   onExportExcel,
   activeTab,
-  setActiveTab
+  setActiveTab,
+  onLock,
+  onOpenChangePassword
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -106,6 +110,26 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Download className="w-3.5 h-3.5" />
               <span>Exportar Excel</span>
+            </button>
+
+            <div className="h-5 w-px bg-slate-200 mx-1 hidden sm:block" />
+
+            <button
+              onClick={onOpenChangePassword}
+              className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-lg border border-[#e4e8ef] bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer shadow-xs"
+              title="Configurar o cambiar clave de acceso"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-slate-500" />
+              <span className="hidden md:inline">Clave</span>
+            </button>
+
+            <button
+              onClick={onLock}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-100 hover:bg-slate-200/80 text-slate-700 transition cursor-pointer shadow-xs"
+              title="Bloquear acceso y cerrar sesión actual"
+            >
+              <Lock className="w-3.5 h-3.5 text-slate-500" />
+              <span>Bloquear</span>
             </button>
           </div>
         </div>
