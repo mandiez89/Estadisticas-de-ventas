@@ -56,6 +56,7 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
 }) => {
   const [paretoDim, setParetoDim] = useState<'cliente' | 'art' | 'vend'>('cliente');
   const [evolMetric, setEvolMetric] = useState<'sub' | 'doc'>('sub');
+  const [ytdMetric, setYtdMetric] = useState<'sub' | 'doc'>('sub');
 
   // Sparkline SVG generator
   const renderSparkline = (values: number[], color: string) => {
@@ -109,7 +110,10 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
     allYears.forEach((y) => {
       // If current year and month is after selected month, can still show or cap
       const matching = baseRows.filter((r) => r.y === y && r.m <= mIdx);
-      const val = matching.reduce((acc, r) => acc + r.sub, 0);
+      const val =
+        ytdMetric === 'sub'
+          ? matching.reduce((acc, r) => acc + r.sub, 0)
+          : matching.reduce((acc, r) => acc + r.doc, 0);
       item[`ytd_${y}`] = val;
     });
     return item;
@@ -313,7 +317,7 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
           <div className="flex-1 h-px bg-[#e4e8ef]"></div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
           {/* Lost Clients */}
           <div className="bg-white rounded-xl p-4 border border-rose-200 border-l-4 border-l-rose-500 shadow-xs flex flex-col justify-between">
             <div>
@@ -338,6 +342,35 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
             {alerts.lostClients.length > 3 && (
               <div className="text-[11px] text-slate-400 mt-2 text-right">
                 +{alerts.lostClients.length - 3} clientes más
+              </div>
+            )}
+          </div>
+
+          {/* Early Warning Cadence At Risk */}
+          <div className="bg-white rounded-xl p-4 border border-orange-200 border-l-4 border-l-orange-500 shadow-xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-slate-800">Alerta Temprana</h3>
+                <span className="text-lg font-bold text-orange-600 font-mono">{alerts.atRiskClients?.length || 0}</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">Superaron su intervalo habitual de compra</p>
+              <ul className="mt-2.5 space-y-1.5 border-t border-slate-100 pt-2 text-xs">
+                {(alerts.atRiskClients || []).slice(0, 3).map((c, i) => (
+                  <li
+                    key={i}
+                    onClick={() => onOpenDrilldown({ type: 'cliente', id: c.name })}
+                    className="flex items-center justify-between cursor-pointer hover:bg-orange-50/70 p-1 rounded transition"
+                    title={`Ciclo habitual: cada ${c.avgCadenceDays} días. Lleva ${c.daysSinceLast} días sin compras.`}
+                  >
+                    <span className="truncate font-medium text-slate-700 max-w-[105px]">{c.name}</span>
+                    <span className="font-mono text-[10px] text-orange-700 font-semibold">+{c.overdueDays}d tarde</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {(alerts.atRiskClients?.length || 0) > 3 && (
+              <div className="text-[11px] text-slate-400 mt-2 text-right">
+                +{(alerts.atRiskClients?.length || 0) - 3} clientes más
               </div>
             )}
           </div>
@@ -531,14 +564,43 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
 
         {/* YTD Acumulado */}
         <div className="bg-white rounded-xl p-5 border border-[#e4e8ef] shadow-xs">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
             <div>
-              <h3 className="text-sm font-bold text-[#141b2d]">Ritmo de Facturación Acumulada (YTD)</h3>
-              <p className="text-xs text-[#5b6478] mt-0.5">Suma acumulada desde enero hasta diciembre</p>
+              <h3 className="text-sm font-bold text-[#141b2d]">
+                {ytdMetric === 'sub'
+                  ? 'Ritmo de Facturación Acumulada (YTD)'
+                  : 'Ritmo de Ventas en Docenas Acumulado (YTD)'}
+              </h3>
+              <p className="text-xs text-[#5b6478] mt-0.5">
+                {ytdMetric === 'sub'
+                  ? 'Suma acumulada de facturación ($) desde enero hasta diciembre'
+                  : 'Suma acumulada de volumen físico (docenas) desde enero hasta diciembre'}
+              </p>
             </div>
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700">
-              Curva Año contra Año
-            </span>
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <div className="flex items-center bg-[#f1f3f7] p-0.5 rounded-lg text-[11px] font-semibold">
+                <button
+                  onClick={() => setYtdMetric('sub')}
+                  className={`px-2.5 py-1 rounded-md transition ${
+                    ytdMetric === 'sub'
+                      ? 'bg-white text-[#206bc4] shadow-xs font-bold'
+                      : 'text-[#5b6478] hover:text-[#141b2d]'
+                  }`}
+                >
+                  $ Facturación
+                </button>
+                <button
+                  onClick={() => setYtdMetric('doc')}
+                  className={`px-2.5 py-1 rounded-md transition ${
+                    ytdMetric === 'doc'
+                      ? 'bg-white text-[#206bc4] shadow-xs font-bold'
+                      : 'text-[#5b6478] hover:text-[#141b2d]'
+                  }`}
+                >
+                  Docenas (Físico)
+                </button>
+              </div>
+            </div>
           </div>
           <div className="h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -550,12 +612,15 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({
                   fontSize={11}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(v) => fmt$M(v)}
+                  tickFormatter={(v) => (ytdMetric === 'sub' ? fmt$M(v) : fmtDoc(v))}
                 />
                 <Tooltip
                   formatter={(val: any, name: string) => {
                     const y = name.replace('ytd_', '');
-                    return [fmt$(val), `Acumulado ${y}`];
+                    return [
+                      ytdMetric === 'sub' ? fmt$(val) : `${fmtDoc(val)} dz`,
+                      `Acumulado ${y}`
+                    ];
                   }}
                   contentStyle={{ backgroundColor: '#141b2d', color: '#fff', borderRadius: '8px', fontSize: '12px' }}
                 />

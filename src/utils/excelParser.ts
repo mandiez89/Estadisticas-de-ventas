@@ -108,6 +108,7 @@ interface ColumnIndices {
   colTipo: number;
   colNeto: number;
   colSub: number;
+  colInactivo: number;
 }
 
 function detectColumnIndices(headers: any[]): ColumnIndices | null {
@@ -126,7 +127,8 @@ function detectColumnIndices(headers: any[]): ColumnIndices | null {
     colLinea: -1,
     colTipo: -1,
     colNeto: -1,
-    colSub: -1
+    colSub: -1,
+    colInactivo: -1
   };
 
   headers.forEach((h, idx) => {
@@ -164,6 +166,14 @@ function detectColumnIndices(headers: any[]): ColumnIndices | null {
       indices.colNeto = idx;
     } else if (clean.includes('subtotal') || clean === 'sub' || clean.includes('importe') || clean === 'total') {
       indices.colSub = idx;
+    } else if (
+      clean.includes('inactiv') ||
+      clean === 'baja' ||
+      clean.includes('estado') ||
+      clean === 'activo' ||
+      clean === 'activos'
+    ) {
+      indices.colInactivo = idx;
     }
   });
 
@@ -301,6 +311,27 @@ export function parseExcelBuffer(buffer: ArrayBuffer): ParseResult {
         ? parseNumber(r[effectiveIndices.colSub]) || neto
         : neto;
 
+      let inactivo = false;
+      if (effectiveIndices.colInactivo !== -1 && r[effectiveIndices.colInactivo] != null) {
+        const rawInact = String(r[effectiveIndices.colInactivo])
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim();
+        const hName = globalHeaderNames[effectiveIndices.colInactivo] || '';
+        const cleanH = cleanHeader(hName);
+
+        if (cleanH.includes('inactiv') || cleanH === 'baja') {
+          // Column "Inactivo": Si / S / 1 / True means customer is inactive
+          inactivo = ['si', 's', 'true', '1', 'inactivo', 'baja', 'desactivado'].includes(rawInact);
+        } else if (cleanH.includes('activ') || cleanH === 'estado') {
+          // Column "Activo": No / 0 / False means customer is inactive
+          inactivo = ['no', '0', 'false', 'inactivo', 'baja', 'desactivado'].includes(rawInact);
+        } else {
+          inactivo = ['si', 's', 'true', '1', 'inactivo', 'baja', 'desactivado'].includes(rawInact);
+        }
+      }
+
       rows.push({
         y: d.getFullYear(),
         m: d.getMonth(),
@@ -320,7 +351,8 @@ export function parseExcelBuffer(buffer: ArrayBuffer): ParseResult {
         linea,
         tipo,
         neto,
-        sub
+        sub,
+        inactivo
       });
 
       sheetRowCount++;

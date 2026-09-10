@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { SaleRow, DrilldownTarget } from '../types';
 import { fmt$, fmt$M, fmtDoc, fmtPct, getDelta, talleSort } from '../utils/formatters';
-import { Search, Grid, Eye, Layers, Package, ArrowRight } from 'lucide-react';
+import { Search, Grid, Eye, Layers, Package, ArrowRight, SlidersHorizontal, Calculator } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -31,6 +31,9 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
   const [sortKey, setSortKey] = useState<string>('sub');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
   const [treemapDim, setTreemapDim] = useState<'linea' | 'fam' | 'art'>('linea');
+  const [matrixArticle, setMatrixArticle] = useState<string>('__ALL__');
+  const [matrixMetric, setMatrixMetric] = useState<'doc' | 'pct'>('doc');
+  const [simulatedBatch, setSimulatedBatch] = useState<string>('');
 
   // Aggregation per article using fast single-pass maps
   const curTotalSub = curRows.reduce((acc, r) => acc + r.sub, 0) || 1;
@@ -145,21 +148,6 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
     .map(([talle, doc]) => ({ name: talle, doc: Math.round(doc) }))
     .sort((a, b) => talleSort(a.name, b.name));
 
-  // Color x Talle Heatmap matrix
-  const topColors = Object.keys(colorMap)
-    .sort((a, b) => colorMap[b] - colorMap[a])
-    .slice(0, 10);
-  const topTalles = Object.keys(talleMap).sort(talleSort);
-
-  const matrixCells: Record<string, number> = {};
-  let maxCellVal = 0;
-  curRows.forEach((r) => {
-    const k = `${r.color}||${r.talle}`;
-    const v = (matrixCells[k] || 0) + r.doc;
-    matrixCells[k] = v;
-    if (v > maxCellVal) maxCellVal = v;
-  });
-
   // Treemap custom layout blocks
   const treemapAgg: Record<string, number> = {};
   curRows.forEach((r) => {
@@ -185,6 +173,45 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
         '#475569'
       ][idx % 10]
     }));
+
+  // Curva de Producción Matrix Data (Per Article or Company Total)
+  const matrixRows = matrixArticle === '__ALL__' ? curRows : curRows.filter((r) => r.art === matrixArticle);
+  const matrixTotalDoc = matrixRows.reduce((a, b) => a + b.doc, 0) || 1;
+
+  const matColorMap: Record<string, number> = {};
+  matrixRows.forEach((r) => {
+    if (r.color && r.color !== '—') {
+      matColorMap[r.color] = (matColorMap[r.color] || 0) + r.doc;
+    }
+  });
+  const matColors = Object.keys(matColorMap).sort((a, b) => matColorMap[b] - matColorMap[a]).slice(0, 15);
+
+  const matTalleMap: Record<string, number> = {};
+  matrixRows.forEach((r) => {
+    if (r.talle && r.talle !== '—') {
+      matTalleMap[r.talle] = (matTalleMap[r.talle] || 0) + r.doc;
+    }
+  });
+  const matTalles = Object.keys(matTalleMap).sort(talleSort);
+
+  const matCells: Record<string, number> = {};
+  let matMaxCell = 0;
+  matrixRows.forEach((r) => {
+    const k = `${r.color}||${r.talle}`;
+    const v = (matCells[k] || 0) + r.doc;
+    matCells[k] = v;
+    if (v > matMaxCell) matMaxCell = v;
+  });
+
+  const parsedBatch = Number(simulatedBatch) > 0 ? Number(simulatedBatch) : 0;
+
+  const articleListForMatrix = Array.from(curArtMap.entries())
+    .map(([art, d]) => ({
+      art,
+      fam: d.fam,
+      doc: d.doc
+    }))
+    .sort((a, b) => b.doc - a.doc);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -309,10 +336,28 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
                   <td className="py-2.5 px-3 text-right font-mono text-amber-700 font-medium">{fmt$(a.pricePerDoc)}</td>
                   <td className="py-2.5 px-3 text-right font-mono text-slate-700">{a.clientCount}</td>
                   <td className="py-2.5 px-4 text-center">
-                    <button className="text-xs text-[#206bc4] font-semibold inline-flex items-center gap-1 hover:underline">
-                      <span>Ver</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </button>
+                    <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMatrixArticle(a.art);
+                          const el = document.getElementById('curva-matrix-section');
+                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                        className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-[#206bc4] rounded text-[11px] font-semibold transition"
+                        title="Ver matriz y curva de producción de este artículo"
+                      >
+                        Curva
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenDrilldown({ type: 'art', id: a.art })}
+                        className="text-xs text-slate-500 font-semibold p-1 hover:text-[#206bc4]"
+                        title="Ver desglose detallado"
+                      >
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -412,62 +457,250 @@ export const ProductsSection: React.FC<ProductsSectionProps> = ({
         </div>
       </div>
 
-      {/* Mix Color x Talle Heatmap */}
-      <div className="bg-white rounded-xl p-5 border border-[#e4e8ef] shadow-xs overflow-hidden">
-        <div className="mb-4">
-          <div className="flex items-center gap-2">
-            <Grid className="w-4 h-4 text-[#206bc4]" />
-            <h3 className="text-sm font-bold text-[#141b2d]">Matriz Color × Talle (Curva de Producción)</h3>
+      {/* Matriz Curva de Producción Color x Talle por Artículo */}
+      <div id="curva-matrix-section" className="bg-white rounded-xl p-5 border border-[#e4e8ef] shadow-xs">
+        {/* Header & Controls */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-[#e4e8ef] mb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Grid className="w-4 h-4 text-[#206bc4]" />
+              <h3 className="text-sm font-bold text-[#141b2d]">
+                Matriz y Curva de Producción Color × Talle {matrixArticle !== '__ALL__' ? `(${matrixArticle})` : ''}
+              </h3>
+            </div>
+            <p className="text-xs text-[#5b6478] mt-0.5">
+              Curva porcentual de venta por talle y color para balanceo de tejeduría, corte y reposición de stock.
+            </p>
           </div>
-          <p className="text-xs text-[#5b6478] mt-0.5">
-            Docenas requeridas por celda en el período seleccionado. Base para programación de tejeduría y corte.
-          </p>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Article Selector */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-slate-500">Artículo:</span>
+              <select
+                value={matrixArticle}
+                onChange={(e) => setMatrixArticle(e.target.value)}
+                className="text-xs font-semibold px-3 py-1.5 bg-blue-50 border border-blue-200 text-[#206bc4] rounded-lg focus:outline-none max-w-[240px]"
+              >
+                <option value="__ALL__">Todos los artículos (Planta Total)</option>
+                {articleListForMatrix.map((item) => (
+                  <option key={item.art} value={item.art}>
+                    {item.art} · {item.fam} ({fmtDoc(item.doc)} dz)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Metric Toggle */}
+            <div className="inline-flex bg-[#e2e7ef] p-0.5 rounded-lg text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setMatrixMetric('doc')}
+                className={`px-2.5 py-1 rounded-md transition ${
+                  matrixMetric === 'doc' ? 'bg-white text-[#141b2d] shadow-xs' : 'text-[#5b6478]'
+                }`}
+              >
+                Docenas
+              </button>
+              <button
+                type="button"
+                onClick={() => setMatrixMetric('pct')}
+                className={`px-2.5 py-1 rounded-md transition ${
+                  matrixMetric === 'pct' ? 'bg-white text-[#141b2d] shadow-xs' : 'text-[#5b6478]'
+                }`}
+              >
+                % Curva
+              </button>
+            </div>
+
+            {/* Batch Simulator */}
+            <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+              <Calculator className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span className="text-xs font-medium text-slate-600 whitespace-nowrap">Simular Lote:</span>
+              <input
+                type="number"
+                placeholder="dz a tejer..."
+                value={simulatedBatch}
+                onChange={(e) => setSimulatedBatch(e.target.value)}
+                className="w-20 px-2 py-0.5 text-xs bg-white border border-slate-200 rounded font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#206bc4]"
+              />
+              {parsedBatch > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSimulatedBatch('')}
+                  className="text-[10px] text-slate-400 hover:text-slate-600 font-bold px-1"
+                  title="Limpiar simulador"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
+        {/* Curva de Talles & Colores Breakdown Pills */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          {/* Curva de Talles */}
+          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-700">
+                Curva de Talles {matrixArticle !== '__ALL__' ? `· ${matrixArticle}` : ''}
+              </span>
+              <span className="text-[10px] text-slate-500 font-medium">Participación % sobre demanda</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+              {matTalles.map((t) => {
+                const docVal = matTalleMap[t] || 0;
+                const pctVal = matrixTotalDoc > 0 ? (docVal / matrixTotalDoc) * 100 : 0;
+                const sugVal = parsedBatch > 0 ? Math.round((pctVal / 100) * parsedBatch) : 0;
+                return (
+                  <div key={t} className="bg-white p-2 rounded border border-slate-200 text-center">
+                    <span className="text-xs font-bold text-slate-900 block">{t}</span>
+                    <span className="text-xs font-mono font-bold text-[#206bc4]">{pctVal.toFixed(1)}%</span>
+                    <span className="text-[10px] font-mono text-slate-400 block">{fmtDoc(docVal)} dz</span>
+                    {parsedBatch > 0 && (
+                      <span className="inline-block mt-1 px-1.5 py-0.2 bg-amber-100 text-amber-900 font-mono font-bold text-[10px] rounded">
+                        {fmtDoc(sugVal)} dz
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Curva de Colores */}
+          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-700">Top Colores Más Demandados</span>
+              <span className="text-[10px] text-slate-500 font-medium">Colorimétrico</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+              {matColors.slice(0, 8).map((c) => {
+                const docVal = matColorMap[c] || 0;
+                const pctVal = matrixTotalDoc > 0 ? (docVal / matrixTotalDoc) * 100 : 0;
+                const sugVal = parsedBatch > 0 ? Math.round((pctVal / 100) * parsedBatch) : 0;
+                return (
+                  <div key={c} className="bg-white p-2 rounded border border-slate-200 text-center">
+                    <span className="text-xs font-bold text-slate-900 block truncate" title={c}>
+                      {c}
+                    </span>
+                    <span className="text-xs font-mono font-bold text-emerald-700">{pctVal.toFixed(1)}%</span>
+                    <span className="text-[10px] font-mono text-slate-400 block">{fmtDoc(docVal)} dz</span>
+                    {parsedBatch > 0 && (
+                      <span className="inline-block mt-1 px-1.5 py-0.2 bg-amber-100 text-amber-900 font-mono font-bold text-[10px] rounded">
+                        {fmtDoc(sugVal)} dz
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Matrix Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-center border-collapse">
             <thead>
               <tr className="bg-[#f8fafc] text-slate-600 font-semibold border-b border-[#e4e8ef]">
                 <th className="py-2.5 px-3 text-left font-bold text-slate-800">Color \ Talle</th>
-                {topTalles.map((t) => (
-                  <th key={t} className="py-2.5 px-2 min-w-[48px]">
-                    {t}
-                  </th>
-                ))}
-                <th className="py-2.5 px-3 text-right bg-slate-100 font-bold">Total</th>
+                {matTalles.map((t) => {
+                  const tDoc = matTalleMap[t] || 0;
+                  const tPct = matrixTotalDoc > 0 ? (tDoc / matrixTotalDoc) * 100 : 0;
+                  return (
+                    <th key={t} className="py-2.5 px-2 min-w-[64px]">
+                      <div>{t}</div>
+                      <div className="text-[10px] font-normal text-slate-400 font-mono">{tPct.toFixed(0)}%</div>
+                    </th>
+                  );
+                })}
+                <th className="py-2.5 px-3 text-right bg-slate-100 font-bold min-w-[70px]">Total Color</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {topColors.map((col) => {
-                let rowSum = 0;
+              {matColors.map((col) => {
+                const colDoc = matColorMap[col] || 0;
+                const colPct = matrixTotalDoc > 0 ? (colDoc / matrixTotalDoc) * 100 : 0;
                 return (
                   <tr key={col} className="hover:bg-slate-50/50">
-                    <td className="py-2 px-3 text-left font-semibold text-slate-800 truncate max-w-[130px]">{col}</td>
-                    {topTalles.map((tal) => {
-                      const val = matrixCells[`${col}||${tal}`] || 0;
-                      rowSum += val;
-                      const intensity = maxCellVal > 0 ? val / maxCellVal : 0;
+                    <td className="py-2 px-3 text-left font-semibold text-slate-800 truncate max-w-[140px]">
+                      <span>{col}</span>
+                      <span className="text-[10px] text-slate-400 font-mono ml-1.5">({colPct.toFixed(0)}%)</span>
+                    </td>
+                    {matTalles.map((tal) => {
+                      const val = matCells[`${col}||${tal}`] || 0;
+                      const cellPct = matrixTotalDoc > 0 ? (val / matrixTotalDoc) * 100 : 0;
+                      const intensity = matMaxCell > 0 ? val / matMaxCell : 0;
+                      const sugUnits = parsedBatch > 0 && cellPct > 0 ? Math.round((cellPct / 100) * parsedBatch) : 0;
+
                       return (
                         <td
                           key={tal}
                           style={{
-                            backgroundColor: val > 0 ? `rgba(32, 107, 196, ${Math.max(0.08, intensity * 0.85)})` : '#f8fafc',
+                            backgroundColor:
+                              val > 0 ? `rgba(32, 107, 196, ${Math.max(0.08, intensity * 0.85)})` : '#f8fafc',
                             color: intensity > 0.45 ? '#ffffff' : val > 0 ? '#141b2d' : '#cbd5e1'
                           }}
                           className="py-2 px-1 font-mono text-[11px] font-medium"
-                          title={`${col} · ${tal}: ${fmtDoc(val)} dz`}
+                          title={`${col} · ${tal}: ${fmtDoc(val)} dz (${cellPct.toFixed(1)}%)`}
                         >
-                          {val > 0 ? fmtDoc(val) : '·'}
+                          {val > 0 ? (
+                            <div>
+                              <div>{matrixMetric === 'doc' ? fmtDoc(val) : `${cellPct.toFixed(1)}%`}</div>
+                              {sugUnits > 0 && (
+                                <div
+                                  className={`text-[9px] font-bold ${
+                                    intensity > 0.45 ? 'text-amber-200' : 'text-amber-700'
+                                  }`}
+                                >
+                                  sug: {fmtDoc(sugUnits)}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            '·'
+                          )}
                         </td>
                       );
                     })}
                     <td className="py-2 px-3 text-right font-mono font-bold text-slate-800 bg-slate-50">
-                      {fmtDoc(rowSum)}
+                      <div>{matrixMetric === 'doc' ? fmtDoc(colDoc) : `${colPct.toFixed(1)}%`}</div>
+                      {parsedBatch > 0 && (
+                        <div className="text-[9px] font-bold text-amber-700">
+                          sug: {fmtDoc(Math.round((colPct / 100) * parsedBatch))}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
+            {/* Totals per Talle Column Footer */}
+            <tfoot>
+              <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
+                <td className="py-2.5 px-3 text-left font-bold text-slate-900">Total Talle</td>
+                {matTalles.map((t) => {
+                  const tDoc = matTalleMap[t] || 0;
+                  const tPct = matrixTotalDoc > 0 ? (tDoc / matrixTotalDoc) * 100 : 0;
+                  const tSug = parsedBatch > 0 ? Math.round((tPct / 100) * parsedBatch) : 0;
+                  return (
+                    <td key={t} className="py-2.5 px-2 font-mono text-[11px] text-slate-900">
+                      <div>{matrixMetric === 'doc' ? fmtDoc(tDoc) : `${tPct.toFixed(1)}%`}</div>
+                      {parsedBatch > 0 && (
+                        <div className="text-[9px] font-bold text-amber-800">sug: {fmtDoc(tSug)}</div>
+                      )}
+                    </td>
+                  );
+                })}
+                <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 bg-slate-200">
+                  <div>{matrixMetric === 'doc' ? fmtDoc(matrixTotalDoc) : '100%'}</div>
+                  {parsedBatch > 0 && (
+                    <div className="text-[9px] font-bold text-amber-900">lote: {fmtDoc(parsedBatch)}</div>
+                  )}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>

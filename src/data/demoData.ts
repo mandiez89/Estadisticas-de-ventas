@@ -15,7 +15,7 @@ export function generateDemoData(): SaleRow[] {
     { name: 'Indumentaria Don Bosco', prov: 'Córdoba', loc: 'Río Cuarto' },
     { name: 'Confecciones del Valle', prov: 'Neuquén', loc: 'Neuquén Capital' },
     { name: 'Punto y Lana Mayoristas', prov: 'Santa Fe', loc: 'Santa Fe Capital' },
-    { name: 'La Gran Oferta SRL', prov: 'Salta', loc: 'Salta' },
+    { name: 'La Gran Oferta SRL', prov: 'Salta', loc: 'Salta', inactivo: true },
     { name: 'Modas Palermo', prov: 'Buenos Aires', loc: 'CABA' },
     { name: 'Centro Mayorista Chaco', prov: 'Chaco', loc: 'Resistencia' },
     { name: 'Pilar Lencería', prov: 'Buenos Aires', loc: 'Pilar' }
@@ -105,7 +105,8 @@ export function generateDemoData(): SaleRow[] {
           linea: artObj.linea,
           tipo: artObj.tipo,
           neto,
-          sub
+          sub,
+          inactivo: !!(clientObj as any).inactivo
         });
       }
     }

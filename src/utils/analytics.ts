@@ -1,4 +1,4 @@
-import { SaleRow, FilterState, RFMSegment } from '../types';
+import { SaleRow, FilterState, RFMSegment, AtRiskClient } from '../types';
 
 export interface KPIResults {
   curSub: number;
@@ -156,6 +156,7 @@ export interface CommercialAlerts {
   newClients: { name: string; curSub: number; curDoc: number; vend: string }[];
   stalledArticles: { name: string; curDoc: number; prevDoc: number; dropPct: number; fam: string }[];
   dormantClients: { name: string; lastPurchaseTs: number; daysDormant: number; totalHistoricalSub: number; vend: string }[];
+  atRiskClients: AtRiskClient[];
 }
 
 export function computeAlerts(
@@ -179,9 +180,18 @@ export function computeAlerts(
     prevClients[r.cliente].doc += r.doc;
   });
 
-  // Lost clients: purchased in prev period, 0 in cur
+  // Set of inactive clients across allBaseRows/prevRows
+  const inactiveClients = new Set<string>();
+  allBaseRows.forEach((r) => {
+    if (r.inactivo) inactiveClients.add(r.cliente);
+  });
+  prevRows.forEach((r) => {
+    if (r.inactivo) inactiveClients.add(r.cliente);
+  });
+
+  // Lost clients: purchased in prev period, 0 in cur, and NOT inactive
   const lostClients = Object.keys(prevClients)
-    .filter((c) => !curClients[c])
+    .filter((c) => !curClients[c] && !inactiveClients.has(c))
     .map((c) => ({
       name: c,
       prevSub: prevClients[c].sub,
@@ -282,12 +292,72 @@ export function computeAlerts(
     .filter((c) => c.daysDormant >= dormantDaysThreshold)
     .sort((a, b) => b.totalHistoricalSub - a.totalHistoricalSub);
 
+  // Early Warning: At-Risk Clients (Frequency / Cadence deviation)
+  // For clients who bought historically, calculate their normal repurchase cadence
+  const clientTimestamps: Record<string, { timestamps: Set<number>; totalSub: number; vend: string; prov: string }> = {};
+  allBaseRows.forEach((r) => {
+    if (!clientTimestamps[r.cliente]) {
+      clientTimestamps[r.cliente] = {
+        timestamps: new Set(),
+        totalSub: 0,
+        vend: r.vend || '—',
+        prov: r.prov || '—'
+      };
+    }
+    // Round to day
+    const dayTs = Math.floor(r.ts / 86400000) * 86400000;
+    clientTimestamps[r.cliente].timestamps.add(dayTs);
+    clientTimestamps[r.cliente].totalSub += r.sub;
+    if (r.vend) clientTimestamps[r.cliente].vend = r.vend;
+    if (r.prov) clientTimestamps[r.cliente].prov = r.prov;
+  });
+
+  const atRiskClients: AtRiskClient[] = [];
+  Object.entries(clientTimestamps).forEach(([clientName, info]) => {
+    // Skip if inactive or already bought in current period
+    if (inactiveClients.has(clientName) || curClients[clientName]) return;
+
+    const dates = Array.from(info.timestamps).sort((a, b) => a - b);
+    if (dates.length >= 2) {
+      let totalIntervalDays = 0;
+      for (let i = 1; i < dates.length; i++) {
+        totalIntervalDays += (dates[i] - dates[i - 1]) / 86400000;
+      }
+      const rawCadence = totalIntervalDays / (dates.length - 1);
+      const avgCadenceDays = Math.max(14, Math.round(rawCadence)); // minimum 14 days baseline
+
+      const lastTs = dates[dates.length - 1];
+      const daysSinceLast = Math.floor((maxTs - lastTs) / 86400000);
+
+      // Warning triggered if they exceeded their normal cadence by 35% and under 365 days
+      if (daysSinceLast > avgCadenceDays * 1.35 && daysSinceLast < 365) {
+        const overdueDays = daysSinceLast - avgCadenceDays;
+        const riskLevel: 'Alto' | 'Medio' = (daysSinceLast > avgCadenceDays * 2 || overdueDays >= 35) ? 'Alto' : 'Medio';
+
+        atRiskClients.push({
+          name: clientName,
+          avgCadenceDays,
+          daysSinceLast,
+          overdueDays,
+          lastPurchaseTs: lastTs,
+          historicalSub: info.totalSub,
+          vend: info.vend,
+          prov: info.prov,
+          riskLevel
+        });
+      }
+    }
+  });
+
+  atRiskClients.sort((a, b) => b.historicalSub - a.historicalSub);
+
   return {
     lostClients,
     droppingClients,
     newClients,
     stalledArticles,
-    dormantClients
+    dormantClients,
+    atRiskClients
   };
 }
 

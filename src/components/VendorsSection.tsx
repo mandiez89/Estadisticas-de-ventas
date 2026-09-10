@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { SaleRow, DrilldownTarget } from '../types';
 import { fmt$, fmt$M, fmtDoc, fmtPct, fmtPp, getDelta } from '../utils/formatters';
-import { Users, Scale, ArrowRight, ArrowUpRight, ArrowDownRight, Award } from 'lucide-react';
+import { Users, Scale, ArrowRight, ArrowUpRight, ArrowDownRight, Award, FileText } from 'lucide-react';
+import { VendorPdfModal } from './VendorPdfModal';
 import {
   BarChart,
   Bar,
@@ -45,6 +46,8 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
   const [cmpDimension, setCmpDimension] = useState<'linea' | 'fam' | 'color' | 'talle' | 'art'>('linea');
   const [sortKey, setSortKey] = useState<string>('sub');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
+  const [mixViewMode, setMixViewMode] = useState<'bars' | 'chart'>('bars');
+  const [pdfVendor, setPdfVendor] = useState<string | null>(null);
 
   // Aggregation per vendor for cur and prev using fast single-pass maps
   const curTotalSub = curRows.reduce((acc, r) => acc + r.sub, 0) || 1;
@@ -99,6 +102,14 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
     if (val.sub > maxVendorSub) maxVendorSub = val.sub;
   });
 
+  const inactiveClients = new Set<string>();
+  baseRows.forEach((r) => {
+    if (r.inactivo) inactiveClients.add(r.cliente);
+  });
+  prevRows.forEach((r) => {
+    if (r.inactivo) inactiveClients.add(r.cliente);
+  });
+
   const vendorStats = allVendors.map((v) => {
     const curV = curVendorMap.get(v) || { sub: 0, doc: 0, clients: new Set<string>(), arts: new Set<string>() };
     const prevV = prevVendorMap.get(v) || { sub: 0, doc: 0, clients: new Set<string>() };
@@ -123,7 +134,7 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
     });
     let lost = 0;
     prevClients.forEach((c) => {
-      if (!curClients.has(c)) lost++;
+      if (!curClients.has(c) && !inactiveClients.has(c)) lost++;
     });
     const net = gained - lost;
 
@@ -230,6 +241,8 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
     })
     .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))
     .slice(0, 12);
+
+  const maxGapPct = gapData.reduce((m, g) => Math.max(m, g.pctA, g.pctB), 10) || 10;
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -378,10 +391,25 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
                     </span>
                   </td>
                   <td className="py-3 px-4 text-center">
-                    <button className="text-xs text-[#206bc4] font-semibold inline-flex items-center gap-1 hover:underline">
-                      <span>Ver ficha</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </button>
+                    <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => setPdfVendor(v.name)}
+                        className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-[#206bc4] rounded text-[11px] font-semibold inline-flex items-center gap-1 transition"
+                        title="Generar Ficha PDF de 1 página"
+                      >
+                        <FileText className="w-3 h-3" />
+                        <span>Ficha PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenDrilldown({ type: 'vend', id: v.name })}
+                        className="text-xs text-slate-500 font-semibold p-1 hover:text-[#206bc4]"
+                        title="Ver desglose detallado"
+                      >
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -416,6 +444,18 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
                 </option>
               ))}
             </select>
+
+            {cmpVendA && (
+              <button
+                type="button"
+                onClick={() => setPdfVendor(cmpVendA)}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold transition"
+                title="Generar Ficha PDF para el vendedor seleccionado"
+              >
+                <FileText className="w-3.5 h-3.5 text-[#206bc4]" />
+                <span>PDF {cmpVendA}</span>
+              </button>
+            )}
 
             <span className="text-xs font-bold text-slate-400">vs</span>
 
@@ -503,27 +543,126 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
 
         {/* Dual Chart and Gap Table */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
-          {/* Chart */}
+          {/* Chart or Simple Bars */}
           <div className="lg:col-span-7">
-            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
-              Mix de Participación (%) por {cmpDimension}
-            </h3>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={gapData} layout="vertical" margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f3f7" horizontal={false} />
-                  <XAxis type="number" unit="%" stroke="#8b95a8" fontSize={11} tickLine={false} />
-                  <YAxis type="category" dataKey="name" stroke="#8b95a8" fontSize={11} tickLine={false} />
-                  <Tooltip
-                    formatter={(val: any, name: string) => [`${val}%`, name === 'pctA' ? labelA : labelB]}
-                    contentStyle={{ backgroundColor: '#141b2d', color: '#fff', borderRadius: '8px', fontSize: '12px' }}
-                  />
-                  <Legend formatter={(val) => (val === 'pctA' ? labelA : labelB)} />
-                  <Bar dataKey="pctA" fill="#206bc4" radius={[0, 4, 4, 0]} maxBarSize={12} />
-                  <Bar dataKey="pctB" fill="#a35a00" radius={[0, 4, 4, 0]} maxBarSize={12} />
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  Mix de Participación (%) por {cmpDimension}
+                </h3>
+                <div className="flex items-center gap-3 mt-1 text-[11px]">
+                  <span className="flex items-center gap-1 font-semibold text-[#206bc4]">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-[#206bc4] inline-block" /> {labelA}
+                  </span>
+                  <span className="flex items-center gap-1 font-semibold text-amber-700">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-amber-600 inline-block" /> {labelB}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center bg-[#f1f3f7] p-0.5 rounded-lg text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setMixViewMode('bars')}
+                  className={`px-2 py-1 rounded-md transition ${
+                    mixViewMode === 'bars'
+                      ? 'bg-white text-[#206bc4] shadow-xs font-bold'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Barras Claras
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMixViewMode('chart')}
+                  className={`px-2 py-1 rounded-md transition ${
+                    mixViewMode === 'chart'
+                      ? 'bg-white text-[#206bc4] shadow-xs font-bold'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Gráfico Clásico
+                </button>
+              </div>
             </div>
+
+            {mixViewMode === 'bars' ? (
+              <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
+                {gapData.map((g) => (
+                  <div
+                    key={g.key}
+                    className="p-2.5 bg-[#f8fafc] rounded-lg border border-[#e4e8ef] hover:border-slate-300 transition"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-800 truncate max-w-[200px]" title={g.fullName}>
+                        {g.fullName}
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-semibold ${
+                          g.gap > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                        }`}
+                      >
+                        {g.gap > 0 ? `+${fmtPp(g.gap)}` : fmtPp(g.gap)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      {/* Bar A */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-500 w-20 truncate font-medium">{labelA}</span>
+                        <div className="flex-1 bg-slate-200 h-2 rounded-full overflow-hidden">
+                          <div
+                            className="bg-[#206bc4] h-full rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(100, (g.pctA / maxGapPct) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[11px] font-mono font-bold text-[#206bc4] w-12 text-right">
+                          {g.pctA}%
+                        </span>
+                      </div>
+
+                      {/* Bar B */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-500 w-20 truncate font-medium">{labelB}</span>
+                        <div className="flex-1 bg-slate-200 h-2 rounded-full overflow-hidden">
+                          <div
+                            className="bg-amber-600 h-full rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(100, (g.pctB / maxGapPct) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[11px] font-mono font-bold text-amber-700 w-12 text-right">
+                          {g.pctB}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={gapData} layout="vertical" margin={{ top: 5, right: 20, left: 80, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f3f7" horizontal={false} />
+                    <XAxis type="number" unit="%" stroke="#8b95a8" fontSize={11} tickLine={false} />
+                    <YAxis
+                      type="category"
+                      dataKey="fullName"
+                      stroke="#8b95a8"
+                      fontSize={11}
+                      tickLine={false}
+                      width={80}
+                      tickFormatter={(val) => (val.length > 12 ? val.slice(0, 11) + '…' : val)}
+                    />
+                    <Tooltip
+                      formatter={(val: any, name: string) => [`${val}%`, name === 'pctA' ? labelA : labelB]}
+                      contentStyle={{ backgroundColor: '#141b2d', color: '#fff', borderRadius: '8px', fontSize: '12px' }}
+                    />
+                    <Legend formatter={(val) => (val === 'pctA' ? labelA : labelB)} />
+                    <Bar dataKey="pctA" fill="#206bc4" radius={[0, 4, 4, 0]} maxBarSize={14} />
+                    <Bar dataKey="pctB" fill="#d97706" radius={[0, 4, 4, 0]} maxBarSize={14} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
 
           {/* Gap Table */}
@@ -564,6 +703,19 @@ export const VendorsSection: React.FC<VendorsSectionProps> = ({
           </div>
         </div>
       </div>
+
+      {pdfVendor && (
+        <VendorPdfModal
+          vendor={pdfVendor}
+          isOpen={Boolean(pdfVendor)}
+          onClose={() => setPdfVendor(null)}
+          curRows={curRows}
+          prevRows={prevRows}
+          baseRows={baseRows}
+          periodLabel={periodLabel}
+          prevPeriodLabel={prevPeriodLabel}
+        />
+      )}
     </div>
   );
 };

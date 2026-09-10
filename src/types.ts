@@ -18,6 +18,7 @@ export interface SaleRow {
   tipo: string;
   neto: number;
   sub: number;
+  inactivo?: boolean;
 }
 
 export type ViewPeriodMode = 'mes' | 'tri' | 'anual';
@@ -42,6 +43,18 @@ export interface FilterState {
 export interface DrilldownTarget {
   type: 'art' | 'vend' | 'cliente';
   id: string;
+}
+
+export interface AtRiskClient {
+  name: string;
+  avgCadenceDays: number;
+  daysSinceLast: number;
+  overdueDays: number;
+  lastPurchaseTs: number;
+  historicalSub: number;
+  vend: string;
+  prov: string;
+  riskLevel: 'Alto' | 'Medio';
 }
 
 export interface RFMSegment {

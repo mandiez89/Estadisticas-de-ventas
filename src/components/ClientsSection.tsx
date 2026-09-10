@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { SaleRow, DrilldownTarget, RFMSegment } from '../types';
 import { fmt$, fmt$M, fmtDoc, fmtPct, getDelta } from '../utils/formatters';
 import { computeRFMSegments } from '../utils/analytics';
-import { Search, UserCheck, AlertCircle, ShoppingBag, ArrowRight, PhoneCall } from 'lucide-react';
+import { Search, UserCheck, AlertCircle, ShoppingBag, ArrowRight, PhoneCall, AlertTriangle, Clock } from 'lucide-react';
 
 interface ClientsSectionProps {
   curRows: SaleRow[];
@@ -25,6 +25,15 @@ export const ClientsSection: React.FC<ClientsSectionProps> = ({
   const [sortKey, setSortKey] = useState<string>('sub');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
   const [selectedSegment, setSelectedSegment] = useState<string | null>(null);
+
+  // Inactive clients set from raw data
+  const inactiveClients = new Set<string>();
+  baseRows.forEach((r) => {
+    if (r.inactivo) inactiveClients.add(r.cliente);
+  });
+  prevRows.forEach((r) => {
+    if (r.inactivo) inactiveClients.add(r.cliente);
+  });
 
   // Compute RFM segments
   const rfmList = computeRFMSegments(baseRows);
@@ -58,6 +67,63 @@ export const ClientsSection: React.FC<ClientsSectionProps> = ({
     c.sub += r.sub;
     c.doc += r.doc;
   }
+
+  // Calculate cadence and at-risk clients
+  let maxTs = 0;
+  baseRows.forEach((r) => {
+    if (r.ts > maxTs) maxTs = r.ts;
+  });
+
+  const clientDatesMap = new Map<string, { dates: Set<number>; totalSub: number; vend: string; prov: string }>();
+  baseRows.forEach((r) => {
+    let cd = clientDatesMap.get(r.cliente);
+    if (!cd) {
+      cd = { dates: new Set(), totalSub: 0, vend: r.vend || '—', prov: r.prov || '—' };
+      clientDatesMap.set(r.cliente, cd);
+    }
+    const dayTs = Math.floor(r.ts / 86400000) * 86400000;
+    cd.dates.add(dayTs);
+    cd.totalSub += r.sub;
+    if (r.vend) cd.vend = r.vend;
+    if (r.prov) cd.prov = r.prov;
+  });
+
+  interface AtRiskClientRow {
+    name: string;
+    vend: string;
+    prov: string;
+    avgCadence: number;
+    daysSinceLast: number;
+    overdueDays: number;
+    totalSub: number;
+  }
+
+  const atRiskClients: AtRiskClientRow[] = [];
+  clientDatesMap.forEach((cd, cName) => {
+    if (inactiveClients.has(cName) || curClientMap.has(cName)) return;
+    const sorted = Array.from(cd.dates).sort((a, b) => a - b);
+    if (sorted.length >= 2) {
+      let intervalSum = 0;
+      for (let i = 1; i < sorted.length; i++) {
+        intervalSum += (sorted[i] - sorted[i - 1]) / 86400000;
+      }
+      const avgCadence = Math.max(14, Math.round(intervalSum / (sorted.length - 1)));
+      const lastTs = sorted[sorted.length - 1];
+      const daysSinceLast = Math.floor((maxTs - lastTs) / 86400000);
+      if (daysSinceLast > avgCadence * 1.35 && daysSinceLast < 365) {
+        atRiskClients.push({
+          name: cName,
+          vend: cd.vend,
+          prov: cd.prov,
+          avgCadence,
+          daysSinceLast,
+          overdueDays: daysSinceLast - avgCadence,
+          totalSub: cd.totalSub
+        });
+      }
+    }
+  });
+  atRiskClients.sort((a, b) => b.overdueDays - a.overdueDays);
 
   const allClients = Array.from(curClientMap.keys()).filter(Boolean);
 
@@ -102,7 +168,8 @@ export const ClientsSection: React.FC<ClientsSectionProps> = ({
       segment: rfm?.segment || 'Potenciales Fieles',
       segmentColor: rfm?.color || '#2563eb',
       daysSinceLast: rfm?.daysSinceLast ?? 0,
-      barPct: (sub / maxClientSub) * 100
+      barPct: (sub / maxClientSub) * 100,
+      isInactive: inactiveClients.has(c)
     };
   });
 
@@ -137,8 +204,10 @@ export const ClientsSection: React.FC<ClientsSectionProps> = ({
     rfmCounts[r.segment].totalSub += r.totalSub;
   });
 
-  // Dormant clients (>365 days)
-  const dormantClients = rfmList.filter((r) => r.daysSinceLast >= 365).sort((a, b) => b.totalSub - a.totalSub);
+  // Dormant clients (>365 days) excluding registered inactivos
+  const dormantClients = rfmList
+    .filter((r) => r.daysSinceLast >= 365 && !inactiveClients.has(r.cliente))
+    .sort((a, b) => b.totalSub - a.totalSub);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -284,7 +353,14 @@ export const ClientsSection: React.FC<ClientsSectionProps> = ({
                       className="absolute left-0 top-1 bottom-1 bg-blue-100/60 rounded-r -z-0"
                       style={{ width: `${Math.min(100, c.barPct)}%` }}
                     />
-                    <span className="relative z-10 font-bold text-slate-800">{c.cliente}</span>
+                    <div className="relative z-10 flex items-center gap-2">
+                      <span className="font-bold text-slate-800">{c.cliente}</span>
+                      {c.isInactive && (
+                        <span className="px-1.5 py-0.2 bg-slate-200 text-slate-600 rounded text-[9px] font-bold uppercase tracking-wider">
+                          Inactivo
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2.5 px-3">
                     <span
@@ -325,6 +401,78 @@ export const ClientsSection: React.FC<ClientsSectionProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Early Warning At-Risk Clients Table */}
+      {atRiskClients.length > 0 && (
+        <div className="bg-white rounded-xl border border-amber-200 shadow-xs overflow-hidden">
+          <div className="p-5 bg-amber-50/50 border-b border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+              <div>
+                <h3 className="text-sm font-bold text-amber-950">
+                  Alertas Preventivas de Frecuencia de Compra ({atRiskClients.length} cuentas en desvío)
+                </h3>
+                <p className="text-xs text-amber-800/80">
+                  Clientes habituales que superaron más del 35% de su intervalo regular sin emitir pedido en este período.
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-bold text-amber-800 px-3 py-1 rounded-full bg-amber-100 border border-amber-200 self-start sm:self-auto">
+              Detección Temprana
+            </span>
+          </div>
+
+          <div className="overflow-x-auto max-h-[320px]">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead className="sticky top-0 bg-[#f8fafc] z-10">
+                <tr className="text-slate-600 font-semibold border-b border-[#e4e8ef]">
+                  <th className="py-2.5 px-4">Cliente</th>
+                  <th className="py-2.5 px-3">Vendedor</th>
+                  <th className="py-2.5 px-3">Provincia</th>
+                  <th className="py-2.5 px-3 text-right">Ciclo Habitual</th>
+                  <th className="py-2.5 px-3 text-right">Días Sin Comprar</th>
+                  <th className="py-2.5 px-3 text-right">Retraso vs Ciclo</th>
+                  <th className="py-2.5 px-3 text-right">Facturación Histórica</th>
+                  <th className="py-2.5 px-4 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {atRiskClients.map((c) => (
+                  <tr
+                    key={c.name}
+                    onClick={() => onOpenDrilldown({ type: 'cliente', id: c.name })}
+                    className="hover:bg-amber-50/40 cursor-pointer transition"
+                  >
+                    <td className="py-2.5 px-4 font-bold text-slate-800">{c.name}</td>
+                    <td className="py-2.5 px-3 font-medium text-slate-700">{c.vend}</td>
+                    <td className="py-2.5 px-3 text-slate-600">{c.prov}</td>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-700">
+                      cada <span className="font-bold">{c.avgCadence}</span> d
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-800 font-semibold">
+                      {c.daysSinceLast} d
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono">
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900">
+                        +{c.overdueDays} d tarde
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-800">
+                      {fmt$M(c.totalSub)}
+                    </td>
+                    <td className="py-2.5 px-4 text-center">
+                      <button className="text-xs text-amber-800 font-bold hover:underline inline-flex items-center gap-1">
+                        <span>Contactar</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Dormant Clients Action Board */}
       <div className="bg-white rounded-xl border border-rose-200 shadow-xs overflow-hidden">
